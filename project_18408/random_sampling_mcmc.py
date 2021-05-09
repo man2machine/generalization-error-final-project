@@ -12,6 +12,8 @@ class random_distribution():
         # random_sampling_variable: distribution from which to draw random points
         # num_points: number of random points to generate
         # points: predefined points, only when predefined points should be used instead of randomly generated ones
+        # max_var: maximum value of variance for the gaussian distributions
+
         self.generate_points = points
         self.max_var = max_var
         self.random_sampling_variable = random_sampling_variable
@@ -26,7 +28,6 @@ class random_distribution():
             self.dim = np.shape(points)[1]
         self.calculate_var()
 
-
     def calculate_var(self):
         self.variances = self.max_var * self.random_sampling_variable.rvs(size=(self.num_points, self.dim))
 
@@ -34,9 +35,8 @@ class random_distribution():
         output = 0
         index = 0
         for point in self.generate_points:
-            output = output + multivariate_normal(mean=point, cov=np.eye(self.dim)*self.variances[index]).pdf(x)
-        return output/self.num_points
-
+            output = output + multivariate_normal(mean=point, cov=np.eye(self.dim) * self.variances[index]).pdf(x)
+        return output / self.num_points
 
 
 # pdf_var = random_distribution(points=[[0.5,0.5,0.5]])
