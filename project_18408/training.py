@@ -17,20 +17,27 @@ import torch.optim as optim
 
 from tqdm import tqdm
 
-def get_timestamp():
-    return datetime.datetime.now().strftime("%m-%d-%Y %I-%M%p")
+from project_18408.utils import get_timestamp_str
+
+class OptimizerType:
+    SGD = "sgd"
+    SGD_MOMENTUM = "sgd_momentum"
+    ADAM = "adam"
+
+class LossType:
+    CROSS_ENTROPY = "cross_entropy"
 
 class ModelTracker:
     def __init__(self, root_dir): 
-        experiment_dir = "Experiment {}".format(get_timestamp())
+        experiment_dir = "Experiment {}".format(get_timestamp_str())
         self.save_dir = os.path.join(root_dir, experiment_dir)
         self.best_model_metric = float('-inf')
         self.record_per_epoch = {}
-        os.makedirs(self.save_dir, exist_ok=True)
     
     def update_info_history(self,
                             epoch,
                             info):
+        os.makedirs(self.save_dir, exist_ok=True)
         self.record_per_epoch[epoch] = info
         fname = "Experiment Epoch Info History.pckl"
         with open(os.path.join(self.save_dir, fname), 'wb') as f:
@@ -42,6 +49,7 @@ class ModelTracker:
                              metric=None,
                              save_best=True,
                              save_current=True):
+        os.makedirs(self.save_dir, exist_ok=True)
         update_best = metric is None or metric > self.best_model_metric
         if update_best and metric is not None:
             self.best_model_metric = metric
@@ -51,12 +59,11 @@ class ModelTracker:
                 "Weights Best.pckl"))
         if save_current:
                 torch.save(model_state_dict, os.path.join(self.save_dir,
-                    "Weights Epoch {} {}.pckl".format(epoch, get_timestamp())))
+                    "Weights Epoch {} {}.pckl".format(epoch, get_timestamp_str())))
 
 def make_optimizer(model, lr=0.001, weight_decay=0.0,
                    clip_grad_norm=False, verbose=False,
-                   adam=False,
-                   sgd=True):
+                   optimzer_type=OptimizerType.SGD):
     # Get all the parameters
     params_to_update = model.parameters()
     
@@ -66,11 +73,14 @@ def make_optimizer(model, lr=0.001, weight_decay=0.0,
             if param.requires_grad == True:
                 print("\t", name)
     
-    if adam:
+    if optimzer_type == OptimizerType.ADAM:
         optimizer = optim.Adam(params_to_update, lr=lr,
             betas=(0.9, 0.999), eps=1e-08, weight_decay=weight_decay, amsgrad=True)
-    elif sgd:
-        optimizer = optim.SGD(params_to_update, lr=lr)
+    elif optimzer_type == OptimizerType.SGD:
+        optimizer = optim.SGD(params_to_update, lr=lr, weight_decay=weight_decay)
+    elif optimzer_type == OptimizerType.SGD_MOMENTUM:
+        optimizer = optim.SGD(params_to_update, lr=lr, weight_decay=weight_decay,
+            momentum=0.9)
     else:
         raise ValueError()
     if clip_grad_norm:
@@ -91,8 +101,11 @@ def make_scheduler(optimizer, epoch_steps, gamma):
     scheduler = optim.lr_scheduler.MultiStepLR(optimizer, epoch_steps, gamma=gamma)
     return scheduler
 
-def get_loss():
-    criterion = nn.CrossEntropyLoss()
+def get_loss(loss_type=LossType.CROSS_ENTROPY):
+    if loss_type == LossType.CROSS_ENTROPY:
+        criterion = nn.CrossEntropyLoss()
+    else:
+        raise ValueError()
     return criterion
 
 def train_model(
@@ -114,7 +127,7 @@ def train_model(
     tracker = ModelTracker(save_dir)
     
     for epoch in range(num_epochs):
-        print("Epoch {}/{}".format(epoch, num_epochs - 1))
+        print("Epoch {}/{}".format(epoch + 1, num_epochs))
         print("-" * 10)
         
         train_loss_info = {}
@@ -177,9 +190,9 @@ def train_model(
         print("Training Accuracy: {:.4f}".format(training_acc))
         train_loss_info['loss'] = train_loss_record
             
-        print("Validation")
+        print("Testing")
         model.eval()
-        pbar = tqdm(dataloaders['val'])
+        pbar = tqdm(dataloaders['test'])
         running_loss = 0.0
         running_correct = 0
         running_count = 0
@@ -191,16 +204,16 @@ def train_model(
 
             with torch.set_grad_enabled(False):
                 outputs = model(inputs)
-            _, preds = torch.max(outputs, dim=1)
-            correct = torch.sum(preds == labels).item()
-
-            running_loss += F.cross_entropy(outputs, labels, reduction='mean').item()
+                _, preds = torch.max(outputs, dim=1)
+                correct = torch.sum(preds == labels).item()
+            
+            running_loss += criterion(outputs, labels).item() * inputs.size(0)
             running_correct += correct
-            val_accuracy = running_correct / running_count
-            val_loss = running_loss * inputs.size(0) / running_count
+            test_accuracy = running_correct / running_count
+            test_loss = running_loss  / running_count
         
-        print("Validation loss {:.4f}".format(val_loss))
-        print("Validation accuracy {:.4f}".format(val_accuracy))
+        print("Testing loss {:.4f}".format(test_loss))
+        print("Testing accuracy {:.4f}".format(test_accuracy))
             
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -209,7 +222,7 @@ def train_model(
             model_weights = model.state_dict()
             tracker.update_model_weights(epoch,
                                          model_weights,
-                                         metric=val_accuracy,
+                                         metric=test_accuracy,
                                          save_best=save_best,
                                          save_current=save_all)
         
@@ -230,7 +243,7 @@ def train_model(
 def save_training_session(model,
                           optimizer,
                           save_dir):
-    sub_dir = "Session {}".format(get_timestamp())
+    sub_dir = "Session {}".format(get_timestamp_str())
     save_dir = os.path.join(save_dir, sub_dir)
     os.makedirs(save_dir, exist_ok=True)
     
