@@ -40,8 +40,8 @@ IMG_DATASET_TO_IMG_SIZE = {
 
 IMG_DATASET_TO_IMG_SIZE_FLAT = {
     ImageDatasetType.MNIST: 28**2,
-    ImageDatasetType.CIFAR10: 32**2,
-    ImageDatasetType.CIFAR100: 32**2
+    ImageDatasetType.CIFAR10: 3*32**2,
+    ImageDatasetType.CIFAR100: 3*32**2
 }
 
 IMG_DATASET_TO_NUM_SAMPLES = {

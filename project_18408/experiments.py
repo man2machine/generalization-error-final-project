@@ -19,7 +19,7 @@ from project_18408.datasets import (ImageDatasetType, IMG_DATASET_TO_NUM_SAMPLES
     get_img_dataset, get_sklearn_dataset, get_dataloaders,
     apply_corrupted_labels, apply_img_transforms)
 from project_18408.training import (OptimizerType, LossType, make_optimizer, make_scheduler,
-    save_training_session, load_training_session, get_loss, train_model)
+    save_training_session, load_training_session, get_loss, train_model, load_weights)
 from project_18408.models.relu_toy_models import ReLUToyModel
 from project_18408.evaluation import get_dataloader_stats
 
@@ -136,7 +136,6 @@ class SKLearnDatasetConfig(JSONDictSerializable):
             num_classes=self.num_classes,
             num_clusters_per_class=self.num_clusters_per_class,
             seed=self.seed)
-        
         if self.corrupt_frac > 0:
             datasets = apply_corrupted_labels(datasets, self.num_classes,
                 corrupt_frac=self.corrupt_frac, seed=self.seed)
@@ -268,12 +267,15 @@ class TrainingConfig(JSONDictSerializable):
                  optimizer_type,
                  loss_type,
                  lr=0.01,
-                 num_epochs=10,
+                 num_epochs=100,
                  clip_grad_norm=False,
                  weight_decay=0.0,
                  use_lr_schedule=False,
                  epoch_lr_decay_steps=None,
-                 lr_decay_gamma=None):
+                 lr_decay_gamma=None,
+                 early_stop=True,
+                 early_stop_acc=0.80,
+                 early_stop_patience=5):
         assert optimizer_type in (OptimizerType.ADAM, OptimizerType.SGD, OptimizerType.SGD_MOMENTUM)
         assert loss_type in (LossType.CROSS_ENTROPY)
         self.optimizer_type = optimizer_type
@@ -285,6 +287,9 @@ class TrainingConfig(JSONDictSerializable):
         self.use_lr_schedule = use_lr_schedule
         self.epoch_lr_decay_steps = epoch_lr_decay_steps
         self.lr_decay_gamma = lr_decay_gamma
+        self.early_stop = early_stop
+        self.early_stop_acc = early_stop_acc
+        self.early_stop_patience = early_stop_patience
 
         if use_lr_schedule:
             assert epoch_lr_decay_steps is not None
@@ -299,7 +304,10 @@ class TrainingConfig(JSONDictSerializable):
                 'weight_decay': self.weight_decay,
                 'use_lr_schedule': self.use_lr_schedule,
                 'epoch_lr_decay_steps': self.epoch_lr_decay_steps,
-                'lr_decay_gamma': self.lr_decay_gamma}
+                'lr_decay_gamma': self.lr_decay_gamma,
+                'early_stop': self.early_stop,
+                'early_stop_acc': self.early_stop_acc,
+                'early_stop_patience': self.early_stop_patience}
 
     @classmethod
     def from_dict(cls, dct):
@@ -310,7 +318,10 @@ class TrainingConfig(JSONDictSerializable):
                    clip_grad_norm=dct['clip_grad_norm'],
                    weight_decay=dct['weight_decay'],
                    epoch_lr_decay_steps=dct['epoch_lr_decay_steps'],
-                   lr_decay_gamma=dct['lr_decay_gamma'])
+                   lr_decay_gamma=dct['lr_decay_gamma'],
+                   early_stop=dct['early_stop'],
+                   early_stop_acc=dct['early_stop_acc'],
+                   early_stop_patience=dct['early_stop_patience'])
 
     def generate_setup(self, model, device):
         optimizer = make_optimizer(model, lr=self.lr, weight_decay=self.weight_decay,
@@ -498,29 +509,41 @@ class ExperimentManager:
                         train_batch_size=128,
                         test_batch_size=128,
                         num_workers=4,
-                        pin_memory=False):
+                        pin_memory=False,
+                        load_from_session=True,
+                        override_best=True):
         workspace_dir = self.get_workspace_dir(config)
         setup = config.generate_setup(
             self.data_dir,
             device,
             train_batch_size,
             test_batch_size,
-            num_workers=4,
-            pin_memory=False
+            num_workers=num_workers,
+            pin_memory=pin_memory
         )
+
         state = self._load_state(workspace_dir)
-        if state.training_complete:
+        if state.training_complete and load_from_session:
             model = setup['model']
             optimizer = setup['training_setup']['optimizer']
-            s = os.listdir(os.path.join(workspace_dir, self.SESSION_DIR))
+            sessions_dir = os.path.join(workspace_dir, self.SESSION_DIR)
+            s = os.listdir(sessions_dir)
             assert len(s) == 1
-            session_dir = os.path.join(workspace_dir, self.SESSION_DIR, s[0])
+            session_sub_dir = os.path.join(sessions_dir, s[0])
             out = load_training_session(
                 model,
                 optimizer,
-                session_dir)
+                session_sub_dir)
             setup['model'] = out['model']
             setup['training_setup']['optimizer'] = out['optimizer']
+
+            if override_best:
+                weights_dir = os.path.join(workspace_dir, self.WEIGHTS_DIR)
+                w = os.listdir(weights_dir)
+                assert len(w) == 1
+                weights_sub_dir = os.path.join(weights_dir, w[0])
+                weights_fname = os.path.join(weights_sub_dir, "Weights Best.pckl")
+                load_weights(setup['model'], weights_fname)
         
         return setup, state
     
@@ -531,7 +554,6 @@ class ExperimentManager:
                      test_batch_size=128,
                      num_workers=4,
                      pin_memory=False,
-                     save_weights=False,
                      completed_ok=False):
         setup, state = self.load_experiment(
             config,
@@ -539,7 +561,9 @@ class ExperimentManager:
             train_batch_size=train_batch_size,
             test_batch_size=test_batch_size,
             num_workers=num_workers,
-            pin_memory=pin_memory
+            pin_memory=pin_memory,
+            load_from_session=True,
+            override_best=False
         )
         if state.training_complete:
             if completed_ok:
@@ -558,6 +582,10 @@ class ExperimentManager:
         lr_scheduler = setup['training_setup']['lr_scheduler']
         criterion = setup['training_setup']['criterion']
         num_epochs = config.training_config.num_epochs
+        
+        early_stop = config.training_config.early_stop
+        early_stop_acc = config.training_config.early_stop_acc
+        early_stop_patience = config.training_config.early_stop_patience
 
         model = model.to(device)
         criterion = criterion.to(device)
@@ -570,10 +598,15 @@ class ExperimentManager:
             optimizer=optimizer,
             save_dir=weights_dir,
             lr_scheduler=lr_scheduler,
-            save_model=save_weights,
-            save_all=save_weights,
-            num_epochs=num_epochs)
-        
+            save_model=True,
+            save_best=True,
+            num_epochs=num_epochs,
+            early_stop=early_stop,
+            early_stop_acc=early_stop_acc,
+            early_stop_patience=early_stop_patience
+        )
+        # no need for save latest as we are saving the session anyways
+
         setup['model_tracker'] = tracker
         save_training_session(model, optimizer, sessions_dir)
         state.training_complete = True
@@ -599,3 +632,5 @@ class ExperimentManager:
             self._save_state(state, workspace_dir)
         
         return stats
+
+        
