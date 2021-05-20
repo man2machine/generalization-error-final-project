@@ -5,10 +5,11 @@ def dec_to_bin(x):
 
 def random_sample_ball(radius, num_samples, d):
     output_samples = np.random.normal(size=(num_samples,d)) 
-    output_samples /= np.linalg.norm(output_samples, axis=0) 
+    output_normalized_samples = np.zeros((num_samples,d)) 
+    output_samples = (output_samples.T / np.linalg.norm(output_samples, axis=1)).T
     random_radii = np.random.random(num_samples) ** (1/d)
     output_samples = np.multiply(output_samples, random_radii[:, np.newaxis])
-    return output_samples
+    return output_samples*radius
 
 def random_sample_binary(num_samples, d):
     output_samples = np.zeros((num_samples, d))
@@ -48,6 +49,10 @@ def random_sample_parameter_matrices(samples, weights_bounds, num_samples_networ
 def compute_rademacher_complexity(weights_bounds, B, N, num_samples_bin, num_samples_network, param_dims):
     """
     weights_bounds is a list of spectral bounds on weights (length d)
+    param_dims is a list of dimensions of outputs from each layer
+    num_samples_bin 
+    B is bound on sample norms
+    N is number of inputs 
     """
     assert param_dims[-1] == 1
     xis = random_sample_binary(num_samples_bin, N) # +/- 1 coefficients
