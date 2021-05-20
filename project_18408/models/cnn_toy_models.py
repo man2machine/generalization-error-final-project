@@ -24,10 +24,9 @@ class CNNToyModel(ResNetBuilder):
         input_img_dim, 
         input_num_channels, 
         output_dim, 
-        kernel_size=3
-    ):
+        kernel_size=3):
         super().__init__()
-        assert depth > 1
+        assert depth > 2
         
         temp_size = input_img_dim
         num_pool = 0
@@ -65,7 +64,6 @@ class CNNToyModel(ResNetBuilder):
         last_channel_idx = 0
         for n in range(num_pool):
             if layer_config[n] == self.MAX_POOL:
-                print("== maxpool")
                 layers_conv.append(nn.MaxPool2d(kernel_size=kernel_size, stride=2, padding=1))
             else:
                 if block_config[n] == 0:
@@ -76,7 +74,7 @@ class CNNToyModel(ResNetBuilder):
                 else:
                     res_blocks = self._make_layer(num_channels[last_channel_idx], num_channels[n+1], block_config[n], 2)
                     layers_conv.append(res_blocks)
-                last_channel_idx = n+1
+                last_channel_idx = n + 1
             
         assert num_linear <= 2
         pre_linear_dim = num_channels[-1] * img_shape_per_pool[-1]**2
@@ -109,7 +107,7 @@ class CNNToyModel(ResNetBuilder):
 
 
 if __name__ == '__main__':
-    toy_model = CNNToyModel(40, 28, 1, 10)
+    toy_model = CNNToyModel(5, 28, 1, 10)
     from torchsummary import summary
     print(toy_model)
     summary(toy_model, (1, 28, 28))

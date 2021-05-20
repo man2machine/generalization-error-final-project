@@ -128,7 +128,7 @@ def train_model(
         save_all=False,
         save_log=False,
         num_epochs=1,
-        early_stop=True,
+        early_stop=False,
         early_stop_acc=0.95,
         early_stop_patience=5):
 
@@ -166,18 +166,7 @@ def train_model(
                 # Get model outputs and calculate loss
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
-
-                _, preds = torch.max(outputs, dim=1)
-
-                # loss parts are for debugging purposes (if there are multiple components to a loss function)
-                loss_parts = loss
-                try:
-                    iter(loss_parts)
-                except TypeError:
-                    loss_parts = [loss_parts]
-                loss = sum(loss_parts)
-                train_loss_record.append([n.detach().item() for n in loss_parts])
-
+                train_loss_record.append(loss.detach().item())
                 loss.backward()
                 optimizer.step()
 
@@ -190,13 +179,12 @@ def train_model(
             training_acc = running_correct / running_count
 
             loss_fmt = "{:.4f}"
-            desc = "Avg. Loss: {}, Total Loss: {}, Loss Parts: [{}]"
+            desc = "Avg. Loss: {}, Total Loss: {}"
             desc = desc.format(loss_fmt.format(training_loss),
-                               loss_fmt.format(sum(loss_parts)),
-                               ", ".join(loss_fmt.format(n.item()) for n in loss_parts))
+                               ", ".join(loss_fmt.format(loss.detach().item())))
             pbar.set_description(desc)
 
-            del loss, loss_parts
+            del loss
         
         pbar.close()
 

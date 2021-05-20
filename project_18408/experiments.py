@@ -21,7 +21,7 @@ from project_18408.datasets import (ImageDatasetType, IMG_DATASET_TO_NUM_SAMPLES
 from project_18408.training import (OptimizerType, LossType, make_optimizer, make_scheduler,
     save_training_session, load_training_session, get_loss, train_model, load_weights)
 from project_18408.models.relu_toy_models import ReLUToyModel
-from project_18408.models.cnn_toy_models import CNNModelConfig
+from project_18408.models.cnn_toy_models import CNNToyModel
 from project_18408.evaluation import get_dataloader_stats
 
 class ImageDatasetConfig(JSONDictSerializable):
@@ -267,13 +267,12 @@ class CNNModelConfig(JSONDictSerializable):
     def generate_model(self):
         if self.seed is not None:
             torch.manual_seed(self.seed)
-        model = CNNModelConfig(
+        model = CNNToyModel(
             depth=self.depth,
             input_img_dim=self.input_img_dim,
             input_num_channels=self.input_num_channels,
             output_dim=self.output_dim,
-            kernel_size=self.kernel_size,
-            bias=self.bias
+            kernel_size=self.kernel_size
         )
 
         return model
@@ -286,7 +285,7 @@ class ModelConfig(JSONDictSerializable):
     def __init__(self,
                  model_type,
                  model_config):
-        assert model_type in (ModelType.RELU_TOY,)
+        assert model_type in (ModelType.RELU_TOY, ModelType.CNN_TOY)
         self.model_type = model_type
         self.config = model_config
     
@@ -299,6 +298,8 @@ class ModelConfig(JSONDictSerializable):
         model_type = dct['model_type']
         if model_type == ModelType.RELU_TOY:
             model_config = ReLUModelConfig.from_dict(dct['model_config'])
+        elif model_type == ModelType.CNN_TOY:
+            model_config = CNNModelConfig.from_dict(dct['model_config'])
         else:
             raise ValueError()
         return cls(model_type=model_type,
@@ -306,6 +307,8 @@ class ModelConfig(JSONDictSerializable):
 
     def generate_model(self):
         if self.model_type == ModelType.RELU_TOY:
+            return self.config.generate_model()
+        elif self.model_type == ModelType.CNN_TOY:
             return self.config.generate_model()
         else:
             raise ValueError()
