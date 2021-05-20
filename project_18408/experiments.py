@@ -21,6 +21,7 @@ from project_18408.datasets import (ImageDatasetType, IMG_DATASET_TO_NUM_SAMPLES
 from project_18408.training import (OptimizerType, LossType, make_optimizer, make_scheduler,
     save_training_session, load_training_session, get_loss, train_model, load_weights)
 from project_18408.models.relu_toy_models import ReLUToyModel
+from project_18408.models.cnn_toy_models import CNNModelConfig
 from project_18408.evaluation import get_dataloader_stats
 
 class ImageDatasetConfig(JSONDictSerializable):
@@ -231,8 +232,55 @@ class ReLUModelConfig(JSONDictSerializable):
 
         return model
 
+class CNNModelConfig(JSONDictSerializable):
+    def __init__(self,
+                 depth, 
+                 input_img_dim, 
+                 input_num_channels, 
+                 output_dim, 
+                 kernel_size=3,
+                 seed=None):
+        self.depth = depth
+        self.input_img_dim = input_img_dim
+        self.input_num_channels = input_num_channels
+        self.output_dim = output_dim
+        self.kernel_size = kernel_size
+        self.seed = seed
+    
+    def to_dict(self):
+        return {'depth': self.depth,
+                'input_img_dim': self.input_img_dim,
+                'input_num_channels': self.input_num_channels,
+                'output_dim': self.output_dim,
+                'kernel_size': self.kernel_size,
+                'seed': self.seed}
+
+    @classmethod
+    def from_dict(cls, dct):
+        return cls(depth=dct['depth'],
+                   input_img_dim=dct['input_img_dim'],
+                   input_num_channels=dct['input_num_channels'],
+                   output_dim=dct['output_dim'],
+                   kernel_size=dct['kernel_size'],
+                   seed=dct['seed'])
+
+    def generate_model(self):
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
+        model = CNNModelConfig(
+            depth=self.depth,
+            input_img_dim=self.input_img_dim,
+            input_num_channels=self.input_num_channels,
+            output_dim=self.output_dim,
+            kernel_size=self.kernel_size,
+            bias=self.bias
+        )
+
+        return model
+
 class ModelType:
     RELU_TOY = "relu_toy"
+    CNN_TOY = "cnn_toy"
 
 class ModelConfig(JSONDictSerializable):
     def __init__(self,
